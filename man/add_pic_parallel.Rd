@@ -5,27 +5,25 @@
 \title{Calculates the PIC for the current configuration.}
 \usage{
 add_pic_parallel(
-  robust,
   Y,
   beta_est,
   g,
   S,
   k,
   kg,
-  pic_e2,
+  robust,
+  est_errors,
   C_candidates,
-  method_estimate_beta = "individual",
-  choice_pic = "pic2022"
+  choice_pic,
+  method_estimate_beta = "individual"
 )
 }
 \arguments{
-\item{robust}{robust or classical estimation}
-
 \item{Y}{Y: NxT dataframe with the panel data of interest}
 
 \item{beta_est}{estimated values of beta}
 
-\item{g}{vector with estimated group membership for all individuals}
+\item{g}{Vector with estimated group membership for all individuals}
 
 \item{S}{number of estimated groups}
 
@@ -33,11 +31,11 @@ add_pic_parallel(
 
 \item{kg}{vector with the estimated number of group specific factors for each group}
 
-\item{pic_e2}{NxT matrix with the error terms}
+\item{robust}{robust or classical estimation}
+
+\item{est_errors}{NxT matrix with the error terms}
 
 \item{C_candidates}{candidates for C (parameter in PIC)}
-
-\item{method_estimate_beta}{defines how beta is estimated. Default case is an estimated beta for each individual. Default value is "individual." Possible values are "homogeneous", "group" or "individual".}
 
 \item{choice_pic}{parameter that defines which PIC is used to select the best configuration of groups and factors.
 Options are "pic2017" (uses the PIC of \insertCite{Ando2017;textual}{RCTS}),
@@ -45,6 +43,8 @@ Options are "pic2017" (uses the PIC of \insertCite{Ando2017;textual}{RCTS}),
 They differ in the penalty they perform on the number of group specific factors (and implicitly on the number of groups). They also differ in the sense that they have
 different NT-regions (where N is the number of time series and T is the length of the time series) where the estimated number of groups, and thus group specific factors will be wrong.
 Pic2022 is the default (this PIC shrinks the problematic NT-region to very large N / very small T).}
+
+\item{method_estimate_beta}{defines how beta is estimated. Default case is an estimated beta for each individual. Default value is "individual." Possible values are "homogeneous", "group" or "individual".}
 }
 \value{
 numeric vector with a value for each candidate C

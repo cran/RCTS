@@ -429,7 +429,6 @@ generate_Y <- function(NN, TT, k_true, kg_true,
 #' @inheritParams generate_Y
 #' @param robust robust or classical estimation
 #' @param S estimated number of groups
-#' @param g vector with estimated group membership for all individuals
 #' @inheritParams define_object_for_initial_clustering_macropca
 #' @param nosetting_lmrob option to remove the recommended setting in lmrob(). It is much faster. Defaults to FALSE.
 #' @param special_case_dgp1 special case for data generated according to dgp 1: it changes the 1st variable in X to 1 (-> intercept). Consequently the estimation of beta needs to be restructured slightly.
@@ -444,15 +443,14 @@ generate_Y <- function(NN, TT, k_true, kg_true,
 #' #  to the true value for this example.
 #' lambda_group <- lambda_group_true_dgp3
 #' factor_group <- factor_group_true_dgp3
-#' g <- g_true_dgp3
-#' beta_init <- initialise_beta(TRUE, Y, X,
-#'   S = 3, g
+#' beta_init <- initialise_beta(Y, X,
+#'   S = 3, TRUE
 #' )
 #' }
 #' @importFrom stats lm
 #' @export
-initialise_beta <- function(robust, Y, X,
-                            S, g,
+initialise_beta <- function(Y, X,
+                            S, robust,
                             method_estimate_beta = "individual",
                             nosetting_lmrob = FALSE,
                             special_case_dgp1 = FALSE) {
@@ -492,29 +490,30 @@ initialise_beta <- function(robust, Y, X,
       )
     }
     if (method_estimate_beta == "group") {
-      for (group in 1:S) { # for each group there must be a column in beta_est.
-        # select parts of X and Y of this group
-        indices_group <- which(g == group)
-        if (length(indices_group) == 0) {
-          message("There is an empty group!")
-        }
-
-        # X needs to be in the form of (NN*TT x p matrix)
-        X_special <- restructure_X_to_order_slowN_fastT(
-          array(X[indices_group, , ],
-            dim = c(length(indices_group), TT, number_of_vars)
-          ),
-          vars_est
-        )
-
-        Y_special <- as.vector(t(Y[indices_group, ])) # order: N1T1, N1T2,N1T3,...N2T1,...N_endT_end
-
-        beta_est[, group] <- determine_beta("heterogeneous", X_special, Y_special, robust, NN, TT, S, method_estimate_beta,
-          initialisation = TRUE,
-          indices = indices_group, vars_est, NA, nosetting_local = nosetting_lmrob,
-          special_case_dgp1
-        )
-      }
+      warning("The following code depends on not-yet-initialized g. To be rewritten if this option ('method_estimate_beta set to group' is added")
+      # for (group in 1:S) { # for each group there must be a column in beta_est.
+      #   # select parts of X and Y of this group
+      #   indices_group <- which(g == group)
+      #   if (length(indices_group) == 0) {
+      #     message("There is an empty group!")
+      #   }
+      #
+      #   # X needs to be in the form of (NN*TT x p matrix)
+      #   X_special <- restructure_X_to_order_slowN_fastT(
+      #     array(X[indices_group, , ],
+      #       dim = c(length(indices_group), TT, number_of_vars)
+      #     ),
+      #     vars_est
+      #   )
+      #
+      #   Y_special <- as.vector(t(Y[indices_group, ])) # order: N1T1, N1T2,N1T3,...N2T1,...N_endT_end
+      #
+      #   beta_est[, group] <- determine_beta("heterogeneous", X_special, Y_special, robust, NN, TT, S, method_estimate_beta,
+      #     initialisation = TRUE,
+      #     indices = indices_group, vars_est, NA, nosetting_local = nosetting_lmrob,
+      #     special_case_dgp1
+      #   )
+      # }
     }
     if (method_estimate_beta == "individual") {
 
@@ -605,9 +604,8 @@ calculate_virtual_factor_and_lambda_group <- function(group, solve_FG_FG_times_F
   LF <- t(lambda) %*% comfactor
   xbeta <- calculate_XB_estimated(
     X, beta_est, g,
-    vars_est, method_estimate_beta
+    vars_est, method_estimate_beta, ncol(Y)
   )
-
 
   if (!do_we_estimate_common_factors(number_of_common_factors_local)) {
     Y_ster <- Y[indices, ] - xbeta
@@ -689,7 +687,9 @@ calculate_errors_virtual_groups <- function(group, LF, virtual_grouped_factor_st
 
   a <- do_we_estimate_common_factors(k)
   b <- do_we_estimate_group_factors(kg)
-  X <- adapt_X_estimating_less_variables(X, vars_est)
+  if( !is.na(X[1]) & !is.null(X[1]) ) {
+    X <- adapt_X_estimating_less_variables(X, vars_est)
+  }
 
   for (i in 1:NN) {
     # calculate lambda_group for one individual, based on an hypothetical group membership
@@ -832,27 +832,28 @@ solveFG <- function(TT, S, kg, factor_group, testing = FALSE) {
 #' comfactor <- matrix(0, nrow = 1, ncol = 30)
 #' # Choose how coefficients of the observable are estimated
 #' beta_est <- estimate_beta(
-#'   robust = TRUE, Y, X, NA, g, lambda_group, factor_group,
+#'   Y, X, NA, g, lambda_group, factor_group,
 #'   lambda, comfactor,
 #'   S = 3, k = 0, kg = c(3, 3, 3),
-#'   vars_est = 3
+#'   vars_est = 3, robust = TRUE
 #' )[[1]]
 #' g_new <- update_g(
-#'   robust = TRUE, Y, X, beta_est, g,
+#'   Y, X, beta_est, g,
 #'   factor_group, lambda, comfactor,
 #'   S = 3,
 #'   k = 0,
 #'   kg = c(3, 3, 3),
 #'   vars_est = 3,
+#'   robust = TRUE,
 #'   "macro", "individual"
 #' )[[1]]
 #' }
 #' @export
-update_g <- function(robust, Y, X, beta_est, g,
+update_g <- function(Y, X, beta_est, g,
                      factor_group,
                      lambda, comfactor,
                      S, k, kg,
-                     vars_est,
+                     vars_est, robust,
                      method_estimate_factors, method_estimate_beta,
                      verbose = FALSE) {
   NN <- nrow(Y)
@@ -870,7 +871,6 @@ update_g <- function(robust, Y, X, beta_est, g,
         k,
         method_estimate_beta,
         factor_group, lambda, comfactor, Y, X, beta_est
-        # use_real_world_data_local = use_real_world_data_inupdateg
       )
     })
     # if (verbose) message("virtual_grouped_factor_structure is created")
@@ -880,7 +880,6 @@ update_g <- function(robust, Y, X, beta_est, g,
 
 
   LF <- (t(lambda) %*% comfactor)
-
 
   # calculate errors for each possible group
   errors_virtual <- lapply(1:S, function(x) {
@@ -893,7 +892,6 @@ update_g <- function(robust, Y, X, beta_est, g,
     )
   })
   # if (verbose) message("errors_virtual is created")
-
 
   if (robust) {
     rho_parameters <- lapply(1:S, function(x) define_rho_parameters(errors_virtual[[x]])) # (parameter object = NA -> returns median and madn of the calculated error term)
@@ -917,8 +915,7 @@ update_g <- function(robust, Y, X, beta_est, g,
     g <- clustering_with_robust_distances(g, S, Y)
   }
 
-  g <- reassign_if_empty_groups(g, S, TT)
-
+  g <- reassign_if_empty_groups(g, S, NN)
   return(list(g, matrix_obj_values, g_before_class_zero))
 }
 
@@ -926,9 +923,9 @@ update_g <- function(robust, Y, X, beta_est, g,
 #'
 #' @param g Vector with group membership for all individuals
 #' @param S_true true number of groups
-#' @param TT length of time series
+#' @param NN number of time series
 #' @return numeric vector with the estimated group membership for all time series
-reassign_if_empty_groups <- function(g, S_true, TT) {
+reassign_if_empty_groups <- function(g, S_true, NN) {
   empty_groups <- c()
   while (length(table(g[g != 0])) != S_true) { # class zero (individuals too far from all groups) should not be counted here
     # reassign one individual to empty groups
@@ -940,7 +937,7 @@ reassign_if_empty_groups <- function(g, S_true, TT) {
     }
 
     for (i in 1:length(empty_groups)) {
-      randomindex <- ceiling(runif(1) * TT)
+      randomindex <- ceiling(runif(1) * NN)
       g[randomindex] <- empty_groups[i]
     }
   }
@@ -1212,23 +1209,30 @@ determine_beta <- function(string, X_special, Y_special, robust,
     model <- LMROB(Y_special, X_special, nosetting = nosetting_local) #-> lmrob(Y_special ~ X_special, setting = "KS2014")
     # }
   } else {
+
     # ncvreg, without weights
     model <- ncvreg(X_special, Y_special, family = "gaussian", penalty = "SCAD",
                     lambda = kappa_candidates
-                    )
-    # print(model$beta)
-    # plot(log(abs(model$beta[2,])))
-    # print("--")
+    )
     if (optimize_kappa) {
-    stop("Classical case with optimizing kappa is not implemented in RCTS. This would require a fixed C.")
+
+      stop("Classical case with optimizing kappa is not implemented in RCTS. This would require a fixed C.")
+
       # C <- .....
       # beta_temp = estimate_beta_classical_optimizekappa(model, kappa_candidates, Y_special, X_special, C, sigma2, TT)
       # print("--")
       # print(dim(beta_temp))
       # return(beta_temp)
-    } else {
-      #take kappa = 0 (note that kappa_candidates needs > 1 element according to documentation)
+    } else {  #when not optimizing kappa:
+      #take kappa = 0 in ncvreg (note that kappa_candidates needs > 1 element according to documentation)
       return(model$beta[, length(kappa_candidates)])
+
+      #alternatiely, we can use lm() since this returns the same results, but is faster the larger T gets
+      #but, lm() is slower than ncvreg when the number of variables in X grows large
+      #also, for practical applications X is often empty, so no estimation of beta necessary
+      # model <- lm(Y_special ~ X_special)
+      # return(model$coefficients)
+
     }
   }
 
@@ -1300,10 +1304,11 @@ determine_beta <- function(string, X_special, Y_special, robust,
 #' method_estimate_beta <- "individual"
 #' method_estimate_factors <- "macro"
 #' beta_est <- estimate_beta(
-#'   robust = TRUE, Y, X, NA, g, lambda_group, factor_group,
+#'   Y, X, NA, g, lambda_group, factor_group,
 #'   lambda, comfactor,
 #'   S = 3, k = 0, kg = c(3, 3, 3),
-#'   vars_est = 3
+#'   vars_est = 3,
+#'   robust = TRUE
 #' )[[1]]
 #' }
 #' @importFrom stats filter
@@ -1311,10 +1316,11 @@ determine_beta <- function(string, X_special, Y_special, robust,
 #' @importFrom purrr map2
 #' @importFrom rlang .data
 #' @export
-estimate_beta <- function(robust, Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor,
+estimate_beta <- function(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor,
                           method_estimate_beta = "individual",
                           S, k, kg,
                           vars_est,
+                          robust,
                           num_factors_may_vary = TRUE,
                           optimize_kappa = FALSE, nosetting = FALSE,
                           special_case_dgp1 = FALSE) {
@@ -1538,7 +1544,9 @@ calculate_W <- function(Y, X, beta_est, g,
   W <- matrix(0, nrow = NN, ncol = TT) # T x N-matrix in original paper , but I rather define as NxT
 
   # if vars_est < vars the obsoleterows in beta_est were already erased -> do the same in X
-  X <- adapt_X_estimating_less_variables(X, vars_est)
+  if( !is.na(X[1]) & !is.null(X[1]) ) {
+    X <- adapt_X_estimating_less_variables(X, vars_est)
+  }
 
   if (vars_est > 0) {
     if (method_estimate_beta == "homogeneous") {
@@ -1626,6 +1634,7 @@ calculate_Z_common <- function(Y, X, beta_est, g, lgfg_list,
 #' @inheritParams calculate_Z_common
 #' @inheritParams estimate_beta
 #' @param group indexnumber of the group
+#' @importFrom dplyr between
 #' @return NxT matrix
 calculate_Z_group <- function(Y, X, beta_est, g, lambda, comfactor, group,
                               k,
@@ -1633,6 +1642,12 @@ calculate_Z_group <- function(Y, X, beta_est, g, lambda, comfactor, group,
                               initialise,
                               vars_est) {
   TT <- ncol(Y)
+  if(!is.na(X[1]) & !is.null(X[1])) {
+    vars_est <- dim(X)[3]
+    X <- adapt_X_estimating_less_variables(X, vars_est)
+  } else {
+    vars_est <- 0
+  }
   indices_group <- which(g == group)
   if (length(indices_group) == 0) {
     message("empty group (calculate_Z_group())")
@@ -1640,10 +1655,14 @@ calculate_Z_group <- function(Y, X, beta_est, g, lambda, comfactor, group,
 
   Z <- matrix(0, nrow = length(indices_group), ncol = TT) # Nj x T matrix
   # if vars_est < vars the obsoleterows in beta_est were already erased -> do the same in X
-  X <- adapt_X_estimating_less_variables(X, vars_est)
 
   for (i in 1:length(indices_group)) { # loop over the number of elements in the group
     index <- indices_group[i]
+    if(!dplyr::between(index, 1, nrow(Y))) {
+      print(index)
+      print(table(g))
+      warning("index has an incorrect value")
+    }
 
     # define XT
     if (vars_est > 0) {
@@ -1656,7 +1675,7 @@ calculate_Z_group <- function(Y, X, beta_est, g, lambda, comfactor, group,
     }
 
     # calculate Z = Y - X*beta_est - LF)
-    y <- Y[index, ] %>% as.numeric()
+    y <- as.numeric(Y[index, ])
     if (initialise) {
       Z[i, ] <- y - XT
     } else {
@@ -1931,8 +1950,9 @@ robustpca <- function(object, number_eigenvectors, KMAX = 20, verbose_robustpca 
   if (!error_macropca & !is.null(factors_macropca)) {
     # rare issue with macropca
     if (nrow(factors_macropca) != ncol(object)) {
+      print("Rare issue with macropca.")
       print(dim(object))
-      print(dim(factors_macropca))
+      print(dim(factors_macropca)) #-> this sometimes contains less than expected elements
       warning("--MacroPCA has dropped a column for unknown reasons---") # This leads to wrong dimensions in the factors, and gives error in rstudio.
     }
   }
@@ -1946,7 +1966,7 @@ robustpca <- function(object, number_eigenvectors, KMAX = 20, verbose_robustpca 
 
 
 
-#' Estimates common factor(s) F
+#' Estimates common factor(s) F.
 #'
 #' The estimator for F, see Anderson (1984), is equal to the first k eigenvectors (multiplied by sqrt(T) due to the restriction F'F/T = I)
 #' associated with first r largest eigenvalues of the matrix WW' (which is of size TxT).
@@ -1959,8 +1979,9 @@ robustpca <- function(object, number_eigenvectors, KMAX = 20, verbose_robustpca 
 #' @inheritParams update_g
 #' @return Return a list. The first element contains the k x T matrix with the k estimated common factors. The second element contains either the
 #' robust MacroPCA-based loadings or NA.
-estimate_factor <- function(robust, Y, X, beta_est, g, lgfg_list,
+estimate_factor <- function(Y, X, beta_est, g, lgfg_list,
                             k, kg,
+                            robust,
                             method_estimate_beta,
                             method_estimate_factors,
                             initialise = FALSE,
@@ -2067,7 +2088,7 @@ prepare_for_robpca <- function(object, NN, TT, option = 3) {
 
 
 
-#' Estimates group factors
+#' Estimates group factors Fg.
 #'
 #' @inheritParams calculate_W
 #' @inheritParams calculate_Z_common
@@ -2076,8 +2097,23 @@ prepare_for_robpca <- function(object, NN, TT, option = 3) {
 #' @inheritParams estimate_factor
 #' @inheritParams update_g
 #' @return Return a list with an element for each estimated group. Each element of the list is a matrix with the group specific factors as rows.
-estimate_factor_group <- function(robust, Y, X, beta_est, g, lambda, comfactor, factor_group,
+#' @export
+#' @examples
+#' #example with data generated with DGP 2
+#' data <- create_data_dgp2(30, 10)
+#' Y <- data[[1]]
+#' X <- data[[2]]
+#' g <- data[[3]] #true group membership
+#' set.seed(1)
+#' beta_est <- matrix(rnorm(4 * nrow(Y)), nrow = 4)
+#' factor_group <- data[[5]] #true values of group specific factors
+#' comfactor <- matrix(0, nrow = 1, ncol = ncol(Y))
+#' lambda <- matrix(0, nrow = 1, ncol = nrow(Y))
+#' estimate_factor_group(Y, X, beta_est, g, lambda, comfactor, factor_group,
+#' 3, 0, c(3, 3, 3), TRUE)
+estimate_factor_group <- function(Y, X, beta_est, g, lambda, comfactor, factor_group,
                                   S, k, kg,
+                                  robust,
                                   method_estimate_beta = "individual", method_estimate_factors = "macro",
                                   initialise = FALSE,
                                   verbose = FALSE
@@ -2100,7 +2136,6 @@ estimate_factor_group <- function(robust, Y, X, beta_est, g, lambda, comfactor, 
       if (TT < kg[group]) {
         warning("There are too many factors to be estimated, compared to TT.")
       }
-
       Wj <- calculate_Z_group(
         Y, X, beta_est, g, lambda, comfactor, group,
         k,
@@ -2173,9 +2208,10 @@ estimate_factor_group <- function(robust, Y, X, beta_est, g, lambda, comfactor, 
 #' @inheritParams calculate_Z_common
 #' @inheritParams estimate_factor
 #' @return Returns a matrix where each row contains a common factor. If the number of estimated common factors equals zero, it returns a matrix with 1 row, containing zero's.
-calculate_lambda <- function(robust, Y, X, beta_est, comfactor, factor_group, g, lgfg_list,
+calculate_lambda <- function(Y, X, beta_est, comfactor, factor_group, g, lgfg_list,
                              k,
                              kg,
+                             robust,
                              method_estimate_beta,
                              method_estimate_factors,
                              verbose = FALSE,
@@ -2257,10 +2293,25 @@ calculate_lambda <- function(robust, Y, X, beta_est, comfactor, factor_group, g,
 #' @importFrom rlang .data
 #' @return Returns a data.frame with a row for each time series. The first number of columns contain the individual loadings to the group specific factors.
 #' Furthermore "group" (group membership) and id (the order in which the time series appear in Y) are added.
-calculate_lambda_group <- function(robust, Y, X, beta_est, factor_group, g, lambda, comfactor,
+#' @export
+#' @examples
+#' #' #example with data generated with DGP 2
+#' data <- create_data_dgp2(30, 10)
+#' Y <- data[[1]]
+#' X <- data[[2]]
+#' g <- data[[3]] #true group membership
+#' set.seed(1)
+#' beta_est <- matrix(rnorm(4 * nrow(Y)), nrow = 4)
+#' factor_group <- data[[5]] #true values of group specific factors
+#' comfactor <- matrix(0, nrow = 1, ncol = ncol(Y))
+#' lambda <- matrix(0, nrow = 1, ncol = nrow(Y))
+#' calculate_lambda_group(Y, X, beta_est, factor_group, g, lambda, comfactor,
+#' 3, 0, c(3, 3, 3), TRUE)
+calculate_lambda_group <- function(Y, X, beta_est, factor_group, g, lambda, comfactor,
                                    S,
                                    k,
                                    kg,
+                                   robust,
                                    method_estimate_beta = "individual", method_estimate_factors = "macro",
                                    verbose = FALSE,
                                    initialise = FALSE
@@ -2419,7 +2470,11 @@ grid_add_variables <- function(grid, Y, X, beta_est, g, lambda, comfactor, metho
                                limit_est_groups_heterogroups = 15) {
   NN <- nrow(Y)
   TT <- ncol(Y)
-  vars <- dim(X)[3]
+  if( !is.na(X[1]) & !is.null(X[1]) ) {
+    vars <- dim(X)[3]
+  } else {
+    vars <- 0
+  }
   if (vars > 0) {
     # for homogeneous beta_est (1 -> 4 at this moment), we only need 1 column as all columns are the same
     if (method_estimate_beta == "homogeneous") {
@@ -2447,7 +2502,7 @@ grid_add_variables <- function(grid, Y, X, beta_est, g, lambda, comfactor, metho
         if (S > 13) grid$XBETA14 <- (apply(grid, 1, function(x) c(1, X[x[1], x[2], ]) %*% beta_est[, 14]))
       }
       if (method_estimate_beta == "individual") {
-        grid$XBETA <- c(calculate_XB_estimated(X, beta_est, g, vars_est, method_estimate_beta))
+        grid$XBETA <- c(calculate_XB_estimated(X, beta_est, g, vars_est, method_estimate_beta, ncol(Y)))
       }
     }
   } else {
@@ -2570,7 +2625,7 @@ calculate_error_term <- function(Y, X, beta_est, g, factor_group, lambda_group, 
       )
     }
     if (method_estimate_beta == "individual") {
-      xt <- t(calculate_XB_estimated(X, beta_est, g, vars_est, method_estimate_beta)) # TxN matrix
+      xt <- t(calculate_XB_estimated(X, beta_est, g, vars_est, method_estimate_beta, ncol(Y))) # TxN matrix
     }
   } else {
     xt <- matrix(0, nrow = TT, ncol = NN) # TxN
@@ -2724,6 +2779,9 @@ calculate_PIC <- function(C, robust, S, k, kg, e2, sigma2,
                           beta_est, g,
                           vars_est,
                           choice_pic = "pic2022") {
+  if(!(choice_pic %in% c("pic2016", "pic2017", "pic2022"))) {
+    stop("An invalid pic has been set.")
+  }
   term1 <- calculate_PIC_term1(e2, robust)
 
   if (vars_est > 0) {
@@ -2826,7 +2884,11 @@ calculate_XB_true <- function(X, beta_true, g, g_true, method_estimate_beta) {
 #' @param vars_est number of available observed variables for which a coefficient will be estimated
 #' @return Returns a 3D-array. If vars_est is set to 0, it returns NA.
 adapt_X_estimating_less_variables <- function(X, vars_est) {
-  vars <- dim(X)[3]
+  if (is.na(X[1]) | is.null(X[1])) {
+    vars <- 0
+  } else {
+    vars <- dim(X)[3]
+  }
   # if vars_est < vars, then the obsolete rows in beta_est are already erased -> do the same in X
   if (vars_est < vars) {
     if (vars_est > 0) {
@@ -2845,12 +2907,16 @@ adapt_X_estimating_less_variables <- function(X, vars_est) {
 #' @return Returns a NxT matrix. If vars_est is set to 0, it returns NA.
 calculate_XB_estimated <- function(X, beta_est, g,
                                    vars_est,
-                                   method_estimate_beta) {
-  vars <- dim(X)[3] # do before adapt_X_estimating_less_variables()
-  # if vars_est < vars, then the obsolete rows in beta_est are already erased -> now do the same in X
-  X <- adapt_X_estimating_less_variables(X, vars_est)
-  NN <- dim(X)[1]
-  TT <- dim(X)[2]
+                                   method_estimate_beta, TT) {
+  if(!is.na(X[1]) & !is.null(X[1])) {
+    vars <- dim(X)[3] # do before adapt_X_estimating_less_variables()
+    # if vars_est < vars, then the obsolete rows in beta_est are already erased -> now do the same in X
+    X <- adapt_X_estimating_less_variables(X, vars_est)
+    NN <- dim(X)[1]
+  } else {
+    NN <- length(g)
+    return(matrix(0, nrow = NN, ncol = TT))
+  }
 
   if (vars > 0 & !is.na(X[1])) {
     if (method_estimate_beta == "homogeneous") { # currently only designed for DGP 5
@@ -2942,7 +3008,7 @@ calculate_FL_group_estimated <- function(lg, fg, g,
     }
   }
   suppressWarnings( # the condition has length > 1 and only the first element will be used
-    if (!is.na(temp)) {
+    if (!is.na(temp[1])) {
       FL_group_est <- lapply(1:NN, function(x) FL_helpf(x, g))
       FL_group_est <- t(matrix(unlist(FL_group_est), nrow = TT))
     } else {
@@ -3433,7 +3499,10 @@ make_subsamples <- function(original_data,
     factor_group_true <- NA
     lambda_group_true <- NA
   }
-  return(list(Y, X, g_true, comfactor_true, lambda_true, factor_group_true, lambda_group_true, sampleN, sampleT))
+  return(list(Y = Y, X = X, g_true = g_true, comfactor_true = comfactor_true,
+              lambda_true = lambda_true, factor_group_true = factor_group_true,
+              lambda_group_true = lambda_group_true,
+              sampleN = sampleN, sampleT = sampleT))
 }
 
 #' Defines the object that will be used to define a initial clustering.
@@ -3445,7 +3514,7 @@ make_subsamples <- function(original_data,
 #' @param method_estimate_factors specifies the robust algorithm to estimate factors: default is "macro". The value is not used when robust is set to FALSE.
 #' @param verbose when TRUE, it prints messages
 #' @return matrix with N rows and 10 columns
-define_object_for_initial_clustering_macropca <- function(robust, Y, k, kg, comfactor, method_estimate_beta = "individual", method_estimate_factors = "macro", verbose = FALSE) {
+define_object_for_initial_clustering_macropca <- function(Y, k, kg, comfactor, robust, method_estimate_beta = "individual", method_estimate_factors = "macro", verbose = FALSE) {
   TT <- ncol(Y)
   number_of_initial_factors <- 10
   stopifnot(method_estimate_beta == "individual")
@@ -3474,7 +3543,7 @@ define_object_for_initial_clustering_macropca <- function(robust, Y, k, kg, comf
   return(to_divide)
 }
 
-#' Function that clusters time series in a dataframe with kmeans (classical algorithm) or trimmed kmeans(robust algorithms).
+#' Function that clusters time series in a dataframe with kmeans.
 #'
 #' If a time series contains NA's a random cluster will be assigned to that time series.
 #' @inheritParams define_object_for_initial_clustering_macropca
@@ -3487,10 +3556,11 @@ define_object_for_initial_clustering_macropca <- function(robust, Y, k, kg, comf
 #' @examples
 #' Y <- Y_dgp3
 #' comfactor <- matrix(0, nrow = ncol(Y))
-#' initialise_clustering(TRUE, Y, 3, 0, c(3, 3, 3), comfactor)
+#' initialise_clustering(Y, 3, 0, c(3, 3, 3), comfactor, TRUE)
 #' @export
-initialise_clustering <- function(robust, Y, S, k, kg, comfactor, max_percent_outliers_tkmeans = 0, verbose = FALSE) {
-  df <- define_object_for_initial_clustering_macropca(robust, Y, k, kg, comfactor, verbose = verbose)
+initialise_clustering <- function(Y, S, k, kg, comfactor, robust, max_percent_outliers_tkmeans = 0, verbose = FALSE) {
+  df <- define_object_for_initial_clustering_macropca(Y, k, kg, comfactor, robust, verbose = verbose)
+
   # in the kmeans-call NA's are not allowed:
   # -> function handleNA() will drop time series with NA's.
   NN <- nrow(df)
@@ -3568,10 +3638,10 @@ initialise_clustering <- function(robust, Y, S, k, kg, comfactor, max_percent_ou
 #' X <- original_data[[2]]
 #' g <- original_data[[3]]
 #' beta_est <- matrix(rnorm(4 * ncol(Y)), nrow = 4)
-#' initialise_commonfactorstructure_macropca(TRUE, Y, X, beta_est, g, NA, 0, c(3, 3, 3))
+#' initialise_commonfactorstructure_macropca(Y, X, beta_est, g, NA, 0, c(3, 3, 3), TRUE)
 #' @export
-initialise_commonfactorstructure_macropca <- function(robust, Y, X, beta_est, g, factor_group,
-                                                      k, kg,
+initialise_commonfactorstructure_macropca <- function(Y, X, beta_est, g, factor_group,
+                                                      k, kg, robust,
                                                       method_estimate_beta = "individual", method_estimate_factors = "macro",
                                                       verbose = FALSE) {
   if(!is.na(X[1]) & !is.null(X[1])) {
@@ -3586,13 +3656,15 @@ initialise_commonfactorstructure_macropca <- function(robust, Y, X, beta_est, g,
       comfactor <- t(matrix(rep(0, TT)))
       lambda <- t(matrix(rep(0, NN)))
     } else {
-      comfactor <- estimate_factor(robust, Y, X, beta_est, g, NA,
+      comfactor <- estimate_factor(Y, X, beta_est, g, NA,
         k, kg,
+        robust,
         method_estimate_beta, method_estimate_factors,
         initialise = TRUE
       )[[1]][1:k, , drop = FALSE]
-      lambda <- calculate_lambda(robust, Y, X, beta_est, comfactor, factor_group, g, NA,
+      lambda <- calculate_lambda(Y, X, beta_est, comfactor, factor_group, g, NA,
         k, kg,
+        robust,
         method_estimate_beta, method_estimate_factors,
         verbose,
         initialise = TRUE
@@ -3631,10 +3703,10 @@ initialise_commonfactorstructure_macropca <- function(robust, Y, X, beta_est, g,
 #' lambda_group <- original_data[[6]]
 #' comfactor <- matrix(0, nrow = 1, ncol = ncol(Y))
 #' lambda <- matrix(0, nrow = 1, ncol = nrow(Y))
-#' iterate(TRUE, Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor, 3, 0, c(3, 3, 3),
+#' iterate(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor, 3, 0, c(3, 3, 3), TRUE,
 #'   verbose = FALSE)
 #' @export
-iterate <- function(robust, Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor, S, k, kg,
+iterate <- function(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor, S, k, kg, robust,
                     method_estimate_beta = "individual", method_estimate_factors = "macro",
                     special_case_dgp1 = FALSE, verbose = FALSE) {
   if(!is.na(X[1]) & !is.null(X[1])) {
@@ -3643,19 +3715,20 @@ iterate <- function(robust, Y, X, beta_est, g, lambda_group, factor_group, lambd
     vars_est <- 0
   }
   if (verbose) message("update beta")
-  beta_est <- estimate_beta(robust, Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor,
+  beta_est <- estimate_beta(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor,
     method_estimate_beta,
     S, k, kg,
-    vars_est,
+    vars_est, robust,
     num_factors_may_vary = TRUE, special_case_dgp1 = special_case_dgp1
   )[[1]]
   if (verbose) message("update group membership")
   g <- update_g(
-    robust, Y, X, beta_est, g,
+    Y, X, beta_est, g,
     factor_group,
     lambda, comfactor,
     S, k, kg,
     vars_est,
+    robust,
     method_estimate_factors, method_estimate_beta
   )[[1]]
 
@@ -3664,30 +3737,34 @@ iterate <- function(robust, Y, X, beta_est, g, lambda_group, factor_group, lambd
     S, k, kg,
     num_factors_may_vary = TRUE, NN = nrow(Y), TT = ncol(Y)
   )
-  comfactor <- estimate_factor(robust, Y, X, beta_est, g, lgfg_list,
+  comfactor <- estimate_factor(Y, X, beta_est, g, lgfg_list,
     k, kg,
+    robust,
     method_estimate_beta, method_estimate_factors,
     verbose = FALSE
   )[[1]]
   lambda <- calculate_lambda(
-    robust, Y, X, beta_est, comfactor, factor_group, g, lgfg_list,
+    Y, X, beta_est, comfactor, factor_group, g, lgfg_list,
     k, kg,
+    robust,
     method_estimate_beta, method_estimate_factors
   )
 
   if (verbose) message("update group specific factorstructure")
   factor_group <- estimate_factor_group(
-    robust, Y, X, beta_est, g, lambda, comfactor, factor_group,
-    S, k, kg,
+    Y, X, beta_est, g, lambda, comfactor, factor_group,
+    S, k, kg, robust,
     method_estimate_beta, method_estimate_factors,
     verbose = verbose
   )
+  if (verbose) message("factor_group is estimated")
   lambda_group <- calculate_lambda_group(
-    robust, Y, X, beta_est, factor_group, g, lambda, comfactor,
-    S, k, kg,
+    Y, X, beta_est, factor_group, g, lambda, comfactor,
+    S, k, kg, robust,
     method_estimate_beta, method_estimate_factors,
     verbose = verbose # , UPDATE1 = FALSE, UPDATE2 = FALSE
   )
+  if (verbose) message("lambda_group is estimated")
 
   if (verbose) message("calculate objective function")
   grid <- expand.grid(1:nrow(Y), 1:ncol(Y))
@@ -3964,7 +4041,7 @@ add_configuration <- function(df_results, S, k, kg) {
 #'
 #' @param df input data frame
 #' @param index_configuration index of the configuration of groups and factors
-#' @param pic_e2 NxT matrix with the error terms
+#' @param est_errors NxT matrix with the error terms
 #' @inheritParams initialise_beta
 #' @inheritParams estimate_beta
 #' @param S number of estimated groups
@@ -3990,7 +4067,7 @@ add_configuration <- function(df_results, S, k, kg) {
 #' add_pic(df_pic, 1, TRUE, Y, beta_est, g, 3, 0, c(3, 3, 3), e, 1:5)
 #' @export
 add_pic <- function(df, index_configuration, robust, Y, beta_est, g, S, k, kg,
-                    pic_e2, C_candidates,
+                    est_errors, C_candidates,
                     method_estimate_beta = "individual",
                     choice_pic = "pic2022") {
   if(!is.na(beta_est[1])) {
@@ -3998,10 +4075,10 @@ add_pic <- function(df, index_configuration, robust, Y, beta_est, g, S, k, kg,
   } else {
     vars_est <- 0
   }
-  pic_sigma2 <- calculate_sigma2(pic_e2)
+  pic_sigma2 <- calculate_sigma2(est_errors)
 
   df[index_configuration, ] <- sapply(C_candidates, function(x) {
-    calculate_PIC(x, robust, S, k, kg, pic_e2, pic_sigma2,
+    calculate_PIC(x, robust, S, k, kg, est_errors, pic_sigma2,
       NN = nrow(Y), TT = ncol(Y),
       method_estimate_beta, beta_est, g,
       vars_est,
@@ -4489,4 +4566,69 @@ define_configurations <- function(S_cand, k_cand, kg_cand) {
   }
 
   return(config_cand %>% dplyr::select(.data$S, .data$k, dplyr::everything()))
+}
+
+#' This function is a wrapper around the initialization and the estimation part of the algorithm, for one configuration. It is only used for the serialized algorithm.
+#'
+#' @inheritParams estimate_beta
+#' @param maxit maximum limit for the number of iterations
+#' @return list with
+#' 1. estimated beta
+#' 2. vector with group membership
+#' 3. matrix with the common factor(s) (contains zero's if there are none estimated)
+#' 4. loadings to the common factor(s)
+#' 5. list with the group specific factors for each of the groups
+#' 6. data.frame with loadings to the group specific factors augmented with group membership and id (to have the order of the time series)
+#' @examples
+#' \donttest{
+#' set.seed(1)
+#' original_data <- create_data_dgp2(60, 30)
+#' Y <- original_data[[1]]
+#' X <- original_data[[2]]
+#' estimate_algorithm(Y, X, 3, 0, c(3,3,3), maxit = 2, robust = TRUE)
+#' }
+#' @export
+estimate_algorithm <- function(Y, X, S, k, kg, maxit = 30, robust = TRUE) {
+  iteration <- 0 # number of the iteration; 0 indicates being in the initialisation phase
+  ########## initialisation
+  beta_est <- initialise_beta(Y, X, S, robust)
+  # initial grouping
+  g <- initialise_clustering(Y, S, k, kg, NA, robust, max_percent_outliers_tkmeans = 0, verbose = FALSE)
+  # initial common factorstructure
+  temp <- initialise_commonfactorstructure_macropca(Y, X, beta_est, g, NA, k, kg, robust)
+  comfactor <- temp[[1]]
+  lambda <- temp[[2]]
+  # initial group specific factorstructure
+  factor_group <- estimate_factor_group(Y, X, beta_est, g, NA, NA, NA, S, k, kg, robust, initialise = TRUE)
+  lambda_group <- calculate_lambda_group(Y, X, beta_est, factor_group, g, NA, NA, S, k, kg, robust, initialise = TRUE)
+
+
+  ######### estimations
+  obj_funct_values <- c()
+  speed <- 999999 # convergence speed: set to initial high value
+  while (iteration < maxit & !check_stopping_rules(iteration, speed, obj_funct_values, verbose = FALSE)) {
+
+    temp <- iterate(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor, S, k, kg, robust, verbose = FALSE)
+    beta_est <- temp[[1]]
+    g <- temp[[2]]
+    comfactor <- temp[[3]]
+    lambda <- temp[[4]]
+    factor_group <- temp[[5]]
+    lambda_group <- temp[[6]]
+    value <- temp[[7]]
+    print(iteration)
+    if(iteration == 0) print(paste(S, "-", k, "-", kg[1:S]),collapse = " ")
+    #print(paste(c("   subset:", subset, "/", max(indices_subset), "config:", i, "/", "...", "(", S, "-", k, "-", kg[1:S], ")", "iteration", iteration, ":", round(value)), collapse = " "))
+    obj_funct_values <- c(obj_funct_values, value)
+    iteration <- iteration + 1
+    speed <- get_convergence_speed(iteration, obj_funct_values / nrow(Y) / ncol(Y))
+    #print("--")
+  }
+  #print("estimation is done")
+
+
+  return(list(beta_est = beta_est, g = g, comfactor = comfactor, lambda = lambda,
+              factor_group = factor_group,
+              lambda_group = lambda_group,
+              iteration = iteration))
 }

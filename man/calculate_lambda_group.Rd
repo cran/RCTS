@@ -5,7 +5,6 @@
 \title{calculates factor loadings of groupfactors}
 \usage{
 calculate_lambda_group(
-  robust,
   Y,
   X,
   beta_est,
@@ -16,6 +15,7 @@ calculate_lambda_group(
   S,
   k,
   kg,
+  robust,
   method_estimate_beta = "individual",
   method_estimate_factors = "macro",
   verbose = FALSE,
@@ -23,8 +23,6 @@ calculate_lambda_group(
 )
 }
 \arguments{
-\item{robust}{TRUE or FALSE: defines using the classical or robust algorithm to estimate beta}
-
 \item{Y}{Y: NxT dataframe with the panel data of interest}
 
 \item{X}{X: NxTxp array containing the observable variables}
@@ -45,6 +43,8 @@ calculate_lambda_group(
 
 \item{kg}{number of group specific factors to be estimated}
 
+\item{robust}{TRUE or FALSE: defines using the classical or robust algorithm to estimate beta}
+
 \item{method_estimate_beta}{defines how beta is estimated. Default case is an estimated beta for each individual. Default value is "individual." Possible values are "homogeneous", "group" or "individual".}
 
 \item{method_estimate_factors}{defines method of robust estimaton of the factors: "macro", "pertmm" or "cz"}
@@ -59,4 +59,18 @@ Furthermore "group" (group membership) and id (the order in which the time serie
 }
 \description{
 returns object which includes group and id of the individuals
+}
+\examples{
+#' #example with data generated with DGP 2
+data <- create_data_dgp2(30, 10)
+Y <- data[[1]]
+X <- data[[2]]
+g <- data[[3]] #true group membership
+set.seed(1)
+beta_est <- matrix(rnorm(4 * nrow(Y)), nrow = 4)
+factor_group <- data[[5]] #true values of group specific factors
+comfactor <- matrix(0, nrow = 1, ncol = ncol(Y))
+lambda <- matrix(0, nrow = 1, ncol = nrow(Y))
+calculate_lambda_group(Y, X, beta_est, factor_group, g, lambda, comfactor,
+3, 0, c(3, 3, 3), TRUE)
 }
