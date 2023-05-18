@@ -431,7 +431,6 @@ generate_Y <- function(NN, TT, k_true, kg_true,
 #' @param S estimated number of groups
 #' @inheritParams define_object_for_initial_clustering_macropca
 #' @param nosetting_lmrob option to remove the recommended setting in lmrob(). It is much faster. Defaults to FALSE.
-#' @param special_case_dgp1 special case for data generated according to dgp 1: it changes the 1st variable in X to 1 (-> intercept). Consequently the estimation of beta needs to be restructured slightly.
 #' @return Matrix with number of rows equal to the number of estimated variables plus one. If method_estimate_beta is set to the default ("individual"),
 #' the number of columns is equal to the number of time series in Y. If method_estimate_beta is set to "group" or to "homogeneous" the number of columns
 #' is equal to the number of groups.
@@ -452,8 +451,14 @@ generate_Y <- function(NN, TT, k_true, kg_true,
 initialise_beta <- function(Y, X,
                             S, robust,
                             method_estimate_beta = "individual",
-                            nosetting_lmrob = FALSE,
-                            special_case_dgp1 = FALSE) {
+                            nosetting_lmrob = FALSE) {
+  #characteristic of dgp 1
+  if(min(X[,,1]) == 1 & max(X[,,1]) == 1) {
+    special_case_dgp1 = TRUE
+  } else {
+    special_case_dgp1 = FALSE
+  }
+
   if(!is.na(X[1]) & !is.null(X[1])) {
     vars_est <- dim(X)[3]
   } else {
@@ -1180,9 +1185,16 @@ determine_beta <- function(string, X_special, Y_special, robust,
                            method_estimate_beta,
                            initialisation = FALSE, indices = NA,
                            vars_est, sigma2,
-                           nosetting_local = FALSE, kappa_candidates = c(2^(-0:-20), 0),
-                           special_case_dgp1 = FALSE) {
+                           nosetting_local = FALSE, kappa_candidates = c(2^(-0:-20), 0)) {
   stopifnot(string == "homogeneous" | string == "heterogeneous") # these are the two only options
+
+
+  #characteristic of dgp 1
+  if(min(X_special[,1]) == 1 & max(X_special[,1]) == 1) {
+    special_case_dgp1 = TRUE
+  } else {
+    special_case_dgp1 = FALSE
+  }
 
   optimize_kappa <- FALSE
   stopifnot(optimize_kappa == FALSE) # not implemented in RCTS (1. Needs loop over C_Candidates; 2. Hard to create a robust equivalent.)
@@ -1322,8 +1334,15 @@ estimate_beta <- function(Y, X, beta_est, g, lambda_group, factor_group, lambda,
                           vars_est,
                           robust,
                           num_factors_may_vary = TRUE,
-                          optimize_kappa = FALSE, nosetting = FALSE,
-                          special_case_dgp1 = FALSE) {
+                          optimize_kappa = FALSE, nosetting = FALSE) {
+
+  #characteristic of dgp 1
+  if(min(X[,,1]) == 1 & max(X[,,1]) == 1) {
+    special_case_dgp1 = TRUE
+  } else {
+    special_case_dgp1 = FALSE
+  }
+
   #need sigma2 for classical case, for optimizing kappa
   #(note: original implementation of Ando/Bai calculates this only once: after the initialization)
   #here, this is calculated before each iteration
@@ -2096,7 +2115,7 @@ prepare_for_robpca <- function(object, NN, TT, option = 3) {
 #' @inheritParams calculate_virtual_factor_and_lambda_group
 #' @inheritParams estimate_factor
 #' @inheritParams update_g
-#' @return Return a list with an element for each estimated group. Each element of the list is a matrix with the group specific factors as rows.
+#' @return Returns a list with an element for each estimated group. Each element of the list is a matrix with the group specific factors as rows.
 #' @export
 #' @examples
 #' #example with data generated with DGP 2
@@ -2401,7 +2420,7 @@ calculate_lambda_group <- function(Y, X, beta_est, factor_group, g, lambda, comf
 
   # change list to dataframe:
   lambda_local2 <- data.frame(lambda_local[[1]])
-  names(lambda_local2) <- paste0("X", 1:ncol(lambda_local2))  #str_c("X", 1:ncol(lambda_local2))
+  names(lambda_local2) <- paste0("X", 1:ncol(lambda_local2))
   rows_without_NA <- which(!apply(Y, 1, anyNA))
   lambda_local2 <- lambda_local2 %>% mutate(group = 1, id = rows_without_NA[(rows_without_NA %in% which(g == 1))])
 
@@ -2778,7 +2797,7 @@ calculate_PIC <- function(C, robust, S, k, kg, e2, sigma2,
                           method_estimate_beta,
                           beta_est, g,
                           vars_est,
-                          choice_pic = "pic2022") {
+                          choice_pic = "pic2017") {
   if(!(choice_pic %in% c("pic2016", "pic2017", "pic2022"))) {
     stop("An invalid pic has been set.")
   }
@@ -3018,96 +3037,6 @@ calculate_FL_group_estimated <- function(lg, fg, g,
   return(FL_group_est)
 }
 
-#' Function to calculate the mean squared error of beta_est.
-#'
-#' For DGP 1 & 2: When the true number of variables in X is not equal to the standard of 3 it currently returns NA.
-#' @param beta_est estimated values of beta
-#' @inheritParams generate_Y
-#' @param without_intercept TRUE of FALSE: to remove the intercept in the calculation of the MSE
-#' @inheritParams estimate_beta
-#' @inheritParams calculate_FL_group_true
-#' @return numeric, or NA if the true number of variables is not equal to the standard of 3
-#' @examples
-#' set.seed(1)
-#' beta_est <- matrix(rnorm(30 * 4), ncol = 30) #random values for beta
-#' beta_true <- matrix(rnorm(4 * 3), nrow = 4)
-#' g_true <- round(runif(30, 1,3)) #random values for true group membership
-#' calculate_mse_beta(beta_est, beta_true, 30, 10, g_true, "individual")
-#' @export
-calculate_mse_beta <- function(beta_est, beta_true, NN, TT, g_true, method_estimate_beta,
-                               # number_of_variables,
-                               without_intercept = FALSE,
-                               special_case_dgp1 = FALSE) {
-  if (method_estimate_beta == "homogeneous") { # relevant for DGP05 (Bramati-Croux)
-    mse <- mean((beta_est - beta_true)^2)
-    if (without_intercept) mse <- mean((beta_est[-1, ] - beta_true[-1, ])^2)
-    return(mse)
-  }
-
-  if (method_estimate_beta == "group") {
-    pre_mse <- mse_heterogeneous_groups(without_intercept, special_case_dgp1, TT)
-  }
-
-  if (method_estimate_beta == "individual") { # Default case; In case of DGP 1 & 2 it returns NA when number of variables is not equal to 3.
-    if (without_intercept) {
-      if (special_case_dgp1) { # calculate MSE without the normal, and without the de facto intercept
-        beta_est <- matrix(beta_est[c(-1, -2), ], ncol = NN)
-        beta_true <- beta_true[c(-1, -2), ]
-      } else { # calculate MSE without the normal intercept
-        beta_est <- beta_est[-1, ]
-        beta_true <- beta_true[-1, ]
-      }
-    }
-
-
-    pre_mse <- rep(NA, NN)
-    for (i in 1:NN) {
-      # (note: length of this vector depends on without_intercept and special_case_dgp1)
-      afw <- beta_est[, i] - beta_true[, g_true[i]]
-
-      pre_mse[i] <- mean(afw^2) # this is (beta_est - beta_true)^2 (mean() goes over the number of variables)
-    }
-  }
-
-  return(mean(pre_mse)) # this is E[(beta_est - beta_true)^2]
-}
-
-#' Helpfunction in calculate_mse_beta(), when method_estimate_beta == "group" (beta is then estimated for each group separately).
-#'
-#' @param without_intercept boolean to remove the intercept in the calculation
-#' @inheritParams calculate_mse_beta
-#' @inheritParams initialise_beta
-#' @param TT length of time series
-#' @param g vector with estimated group membership for all individuals
-#' @return numeric vector
-mse_heterogeneous_groups <- function(beta_est, beta_true, TT, g, g_true, without_intercept, special_case_dgp1) {
-
-  # 1. The order of the estimated groups is not necessarily the same as the order of the true groups. -> possible necessary to permutate g to get the MSE?
-  #-> this is countered by the order in the object beta_est
-  #-> we do not need permutation here
-
-  # if(sd(v1) != 0) { #when extra noise is added to the DGP (this is a non-standard case)
-  #   message("mse_heterogeneous_groups(): not implemented when v1 contains values (=extra noise in dgp)")
-  #   return(NA)
-  # }
-
-  if (without_intercept) {
-    if (special_case_dgp1) { #->calculate MSE without true and without de facto intercept of DGP1
-      beta_est <- beta_est[c(-1, -2), ]
-      beta_true <- beta_true[c(-1, -2), ]
-    } else { # calculate MSE without true intercept
-      beta_est <- beta_est[-1, ]
-      beta_true <- beta_true[-1, ]
-    }
-  }
-
-  pre_mse <- rep(NA, TT)
-  for (i in 1:TT) {
-    afw <- beta_est[, g[i]] - (beta_true[, g_true[i]])
-    pre_mse[i] <- mean(afw^2)
-  }
-  return(pre_mse)
-}
 
 
 
@@ -3400,7 +3329,8 @@ create_data_dgp2 <- function(N, TT, S_true = 3, vars = 3, k_true = 0, kg_true = 
     g_true, beta_true, lambda_group_true, factor_group_true,
     lambda_true, comfactor_true, eps, X
   )
-  return(list(Y, X, g_true, beta_true, factor_group_true, lambda_group_true, comfactor_true, lambda_true))
+  return(list(Y = Y, X = X, g_true = g_true, beta_true = beta_true, factor_group_true = factor_group_true,
+              lambda_group_true = lambda_group_true, comfactor_true = comfactor_true, lambda_true = lambda_true))
 }
 
 #' Selects a subsample of the time series, and of the length of the time series.
@@ -3430,9 +3360,20 @@ make_subsamples <- function(original_data,
   #determine whether input data is simulated or real world data, based on size of input
   if(length(original_data) == 2) {
     use_real_world_data = TRUE
+    g_true <- NA
+    factor_group_true <- NA
+    lambda_group_true <- NA
+    comfactor_true <- NA
+    lambda_true <- NA
   } else {
     use_real_world_data = FALSE
+    g_true <- original_data[[3]]
+    factor_group_true <- original_data[[5]]
+    lambda_group_true <- original_data[[6]]
+    comfactor_true <- original_data[[7]]
+    lambda_true <- original_data[[8]]
   }
+
   Y <- original_data[[1]]
   N_fulldata <- nrow(Y)
   T_fulldata <- ncol(Y)
@@ -3440,13 +3381,6 @@ make_subsamples <- function(original_data,
   stepsize_T <- round(T_fulldata / 30)
 
   X <- original_data[[2]]
-  if(!use_real_world_data) {
-    g_true <- original_data[[3]]
-    factor_group_true <- original_data[[5]]
-    lambda_group_true <- original_data[[6]]
-    comfactor_true <- original_data[[7]]
-    lambda_true <- original_data[[8]]
-  }
 
 
   # define size of the subsample
@@ -3478,7 +3412,13 @@ make_subsamples <- function(original_data,
     g_true <- g_true[sampleN]
 
     S <- length(factor_group_true)
-    k <- nrow(comfactor_true)
+    if("matrix" %in% comfactor_true) {
+      k <- nrow(comfactor_true)
+    } else {
+
+        k <- 0
+
+    }
     kg <- unlist(lapply(factor_group_true, nrow))
 
     # subsample of the factors and their loadings
@@ -3492,12 +3432,6 @@ make_subsamples <- function(original_data,
         lambda_group_true <- lambda_group_true %>% dplyr::filter(.data$id %in% sampleN)
       }
     }
-  } else {
-    g_true <- NA
-    comfactor_true <- NA
-    lambda_true <- NA
-    factor_group_true <- NA
-    lambda_group_true <- NA
   }
   return(list(Y = Y, X = X, g_true = g_true, comfactor_true = comfactor_true,
               lambda_true = lambda_true, factor_group_true = factor_group_true,
@@ -3681,7 +3615,6 @@ initialise_commonfactorstructure_macropca <- function(Y, X, beta_est, g, factor_
 #' @param k number of common factors to estimate
 #' @param kg vector with length S. Each element contains the number of group specific factors to estimate.
 #' @inheritParams define_object_for_initial_clustering_macropca
-#' @param special_case_dgp1 TRUE or FALSE: whether data is generated from dgp1 and has the extra spread in group centers. Default is FALSE.
 # @param vars_est number of variables for which a beta is estimated. Usually equal to the number of variables available in X.
 #' @inheritParams update_g
 #' @return list with
@@ -3708,18 +3641,28 @@ initialise_commonfactorstructure_macropca <- function(Y, X, beta_est, g, factor_
 #' @export
 iterate <- function(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor, S, k, kg, robust,
                     method_estimate_beta = "individual", method_estimate_factors = "macro",
-                    special_case_dgp1 = FALSE, verbose = FALSE) {
+                    verbose = FALSE) {
+
+  #special_case_dgp1: TRUE or FALSE: whether data is generated from dgp1 (Ando, Bai 2017) and has the extra spread in group centers. Default is FALSE.
+  #it changes the 1st variable in X to 1 (-> intercept). Consequently the estimation of beta needs to be restructured slightly.
+  if(min(X[,,1]) == 1 & max(X[,,1]) == 1) {
+    special_case_dgp1 = TRUE
+  } else {
+    special_case_dgp1 = FALSE
+  }
+
   if(!is.na(X[1]) & !is.null(X[1])) {
     vars_est <- dim(X)[3]
   } else {
     vars_est <- 0
   }
+
   if (verbose) message("update beta")
   beta_est <- estimate_beta(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfactor,
     method_estimate_beta,
     S, k, kg,
     vars_est, robust,
-    num_factors_may_vary = TRUE, special_case_dgp1 = special_case_dgp1
+    num_factors_may_vary = TRUE
   )[[1]]
   if (verbose) message("update group membership")
   g <- update_g(
@@ -3803,7 +3746,8 @@ iterate <- function(Y, X, beta_est, g, lambda_group, factor_group, lambda, comfa
     )
   }
   if (verbose) print(value)
-  return(list(beta_est, g, comfactor, lambda, factor_group, lambda_group, value))
+  return(list(beta_est = beta_est, g = g, comfactor = comfactor, lambda = lambda,
+              factor_group = factor_group, lambda_group = lambda_group, value = value))
 }
 
 
@@ -4054,7 +3998,7 @@ add_configuration <- function(df_results, S, k, kg) {
 #' "pic2016" (\insertCite{Ando2016;textual}{RCTS}) weighs the fourth term with an extra factor relative to the size of the groups, and "pic2022".
 #' They differ in the penalty they perform on the number of group specific factors (and implicitly on the number of groups). They also differ in the sense that they have
 #' different NT-regions (where N is the number of time series and T is the length of the time series) where the estimated number of groups, and thus group specific factors will be wrong.
-#' Pic2022 is the default (this PIC shrinks the problematic NT-region to very large N / very small T).
+#' Pic2022 is designed to shrink the problematic NT-region to very large N / very small T).
 #' @return data.frame
 #' @examples
 #' set.seed(1)
@@ -4069,7 +4013,7 @@ add_configuration <- function(df_results, S, k, kg) {
 add_pic <- function(df, index_configuration, robust, Y, beta_est, g, S, k, kg,
                     est_errors, C_candidates,
                     method_estimate_beta = "individual",
-                    choice_pic = "pic2022") {
+                    choice_pic = "pic2017") {
   if(!is.na(beta_est[1])) {
     vars_est <- ncol(beta_est)
   } else {
